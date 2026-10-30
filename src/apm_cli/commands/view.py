@@ -17,6 +17,7 @@ from ..core.command_logger import CommandLogger
 from ..deps.github_downloader import GitHubPackageDownloader
 from ..models.dependency.reference import DependencyReference
 from ..models.dependency.types import RemoteRef
+from ..utils.json_output import emit_json, emit_json_error
 from ..utils.path_security import PathTraversalError, ensure_path_within, validate_path_segments
 from .deps._utils import _get_detailed_package_info
 
@@ -35,6 +36,7 @@ def resolve_package_path(
     package: str,
     apm_modules_path: Path,
     logger: CommandLogger,
+    as_json: bool = False,
 ) -> Path | None:
     """Locate the package directory inside *apm_modules_path*.
 
@@ -44,12 +46,15 @@ def resolve_package_path(
 
     Returns *None* when path validation fails (traversal attempt).
     Exits via ``sys.exit(1)`` when the package cannot be found so that
-    callers do not need to duplicate error handling.
+    callers do not need to duplicate error handling.  With *as_json*,
+    every failure is reported as a JSON error on stderr instead.
     """
     # Guard: reject traversal sequences before building any path
     try:
         validate_path_segments(package, context="package name")
     except PathTraversalError as exc:
+        if as_json:
+            emit_json_error(str(exc))
         logger.error(str(exc))
         return None
 
@@ -60,6 +65,8 @@ def resolve_package_path(
     try:
         ensure_path_within(direct_match, apm_modules_path)
     except PathTraversalError as exc:
+        if as_json:
+            emit_json_error(str(exc))
         logger.error(str(exc))
         return None
     if direct_match.is_dir() and (
@@ -79,13 +86,22 @@ def resolve_package_path(
                         return package_dir
 
     # Not found -- show available packages and exit
+    available = [
+        f"{org_dir.name}/{package_dir.name}"
+        for org_dir in apm_modules_path.iterdir()
+        if org_dir.is_dir() and not org_dir.name.startswith(".")
+        for package_dir in org_dir.iterdir()
+        if package_dir.is_dir() and not package_dir.name.startswith(".")
+    ]
+    if as_json:
+        emit_json_error(
+            f"Package '{package}' not found in apm_modules/",
+            available=sorted(available, key=str.lower),
+        )
     logger.error(f"Package '{package}' not found in apm_modules/")
     logger.progress("Available packages:")
-    for org_dir in apm_modules_path.iterdir():
-        if org_dir.is_dir() and not org_dir.name.startswith("."):
-            for package_dir in org_dir.iterdir():
-                if package_dir.is_dir() and not package_dir.name.startswith("."):
-                    click.echo(f"  - {org_dir.name}/{package_dir.name}")
+    for name in available:
+        click.echo(f"  - {name}")
     sys.exit(1)
 
 
@@ -115,17 +131,32 @@ def _lookup_lockfile_ref(package: str, project_root: Path) -> tuple[str, str, st
     return "", "", ""
 
 
+# Human-readable placeholders from ``_get_detailed_package_info`` that mean
+# "no value"; ``--json`` reports them as null instead.
+_JSON_NULL_PLACEHOLDERS = frozenset(
+    {"unknown", "Unknown", "No description", "No apm.yml found", "apm.yml identity incomplete"}
+)
+
+
+def _json_value(value: str) -> str | None:
+    """Map a display placeholder to ``None`` for ``--json`` output."""
+    if not value or value in _JSON_NULL_PLACEHOLDERS or value.startswith("--"):
+        return None
+    return value
+
+
 def display_package_info(
     package: str,
     package_path: Path,
     logger: CommandLogger,
     project_root: Path | None = None,
+    as_json: bool = False,
 ) -> None:
     """Load and render package metadata to the terminal.
 
-    Uses a Rich panel when available, falling back to plain text.
-    When *project_root* is provided, the lockfile is consulted for
-    ref and commit information.
+    Uses a Rich panel when available, falling back to plain text, or a
+    JSON object when *as_json* is set.  When *project_root* is provided,
+    the lockfile is consulted for ref and commit information.
     """
     try:
         package_info = _get_detailed_package_info(package_path)
@@ -136,6 +167,26 @@ def display_package_info(
         locked_source = ""
         if project_root is not None:
             locked_ref, locked_commit, locked_source = _lookup_lockfile_ref(package, project_root)
+
+        if as_json:
+            if package_info["version"] == "error":
+                emit_json_error(package_info["description"])
+            emit_json(
+                {
+                    "name": package_info["name"],
+                    "version": _json_value(package_info["version"]),
+                    "description": _json_value(package_info["description"]),
+                    "author": _json_value(package_info["author"]),
+                    "source": locked_source or _json_value(package_info["source"]),
+                    "ref": locked_ref or None,
+                    "commit": locked_commit or None,
+                    "install_path": package_info["install_path"],
+                    "context_files": dict(sorted(package_info["context_files"].items())),
+                    "workflows": package_info["workflows"],
+                    "hooks": package_info.get("hooks", 0),
+                }
+            )
+            return
 
         try:
             from rich.console import Console
@@ -221,6 +272,8 @@ def display_package_info(
                 click.echo(f"  * {package_info['hooks']} hook file(s)")
 
     except Exception as e:
+        if as_json:
+            emit_json_error(f"Error reading package information: {e}")
         logger.error(f"Error reading package information: {e}")
         sys.exit(1)
 
@@ -229,11 +282,13 @@ def _display_marketplace_plugin(
     plugin_name: str,
     marketplace_name: str,
     logger: CommandLogger,
+    as_json: bool = False,
 ) -> None:
     """Display metadata for a marketplace plugin.
 
     Fetches the marketplace manifest, finds the plugin, and renders
-    its entry information (name, version, description, source).
+    its entry information (name, version, description, source), as a
+    JSON object when *as_json* is set.
     """
     from ..marketplace.client import fetch_or_cache
     from ..marketplace.errors import MarketplaceFetchError
@@ -244,20 +299,30 @@ def _display_marketplace_plugin(
     try:
         source: MarketplaceSource = get_marketplace_by_name(marketplace_name)
     except Exception as exc:
+        if as_json:
+            emit_json_error(str(exc))
         logger.error(str(exc))
         sys.exit(1)
 
     try:
         manifest = fetch_or_cache(source)
     except MarketplaceFetchError as exc:
+        if as_json:
+            emit_json_error(str(exc))
         logger.error(str(exc))
         logger.progress("Check your network connection and try again.")
         sys.exit(1)
+    except Exception as exc:
+        if as_json:
+            emit_json_error(str(exc))
+        raise
 
     plugin = manifest.find_plugin(plugin_name)
     if plugin is None:
         from ..marketplace.errors import PluginNotFoundError as _PNF
 
+        if as_json:
+            emit_json_error(str(_PNF(plugin_name, marketplace_name)))
         logger.error(str(_PNF(plugin_name, marketplace_name)))
         sys.exit(1)
 
@@ -290,6 +355,21 @@ def _display_marketplace_plugin(
             source_display += f" @ {ref}"
     elif isinstance(plugin.source, str):
         source_display = plugin.source
+
+    if as_json:
+        emit_json(
+            {
+                "name": plugin.name,
+                "marketplace": marketplace_name,
+                "version": plugin.version or None,
+                "description": plugin.description or None,
+                "source": source_display if source_display != "--" else None,
+                "resolved": resolved_display,
+                "tags": sorted(plugin.tags or []),
+                "install": f"{plugin.name}@{marketplace_name}",
+            }
+        )
+        return
 
     try:
         from rich.console import Console
@@ -690,11 +770,17 @@ _VIEW_HELP = (
     help="List versions from a registry (bare to use the default, or name one). "
     "Use a full git URL to force the git path instead.",
 )
-def view(package: str, field: str | None, global_: bool, registry: str | None):
+@click.option(
+    "--json", "as_json", is_flag=True, default=False, help="Output as JSON instead of a panel."
+)
+def view(package: str, field: str | None, global_: bool, registry: str | None, as_json: bool):
     """View package metadata or list remote versions."""
     from ..core.scope import InstallScope, get_apm_dir
 
     logger = CommandLogger("view")
+
+    if as_json and field is not None:
+        emit_json_error("--json is not supported together with a FIELD argument")
 
     # Warn if --registry is supplied without the versions field (flag is ignored).
     if registry is not None and field != "versions":
@@ -719,10 +805,15 @@ def view(package: str, field: str | None, global_: bool, registry: str | None):
     # --- marketplace ref without explicit field -> show versions ---
     from ..marketplace.resolver import parse_marketplace_ref
 
-    marketplace_ref = parse_marketplace_ref(package)
+    try:
+        marketplace_ref = parse_marketplace_ref(package)
+    except ValueError as exc:
+        if as_json:
+            emit_json_error(str(exc))
+        raise
     if marketplace_ref is not None:
         plugin_name, marketplace_name, _version_spec = marketplace_ref
-        _display_marketplace_plugin(plugin_name, marketplace_name, logger)
+        _display_marketplace_plugin(plugin_name, marketplace_name, logger, as_json=as_json)
         return
 
     # --- default: show local metadata ---
@@ -735,11 +826,13 @@ def view(package: str, field: str | None, global_: bool, registry: str | None):
         apm_modules_path = project_root / APM_MODULES_DIR
 
     if not apm_modules_path.exists():
+        if as_json:
+            emit_json_error("No apm_modules/ directory found")
         logger.error("No apm_modules/ directory found")
         logger.progress("Run 'apm install' to install dependencies first")
         sys.exit(1)
 
-    package_path = resolve_package_path(package, apm_modules_path, logger)
+    package_path = resolve_package_path(package, apm_modules_path, logger, as_json=as_json)
     if package_path is None:
         sys.exit(1)
-    display_package_info(package, package_path, logger, project_root=project_root)
+    display_package_info(package, package_path, logger, project_root=project_root, as_json=as_json)

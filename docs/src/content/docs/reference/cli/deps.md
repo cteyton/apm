@@ -59,6 +59,7 @@ apm deps list [OPTIONS]
 | `-g, --global` | List user-scope dependencies in `~/.apm/` instead of the project. |
 | `--all` | Show both project and user-scope dependencies. |
 | `--insecure` | Show only dependencies locked to `http://` sources. Adds an `Origin` column distinguishing `direct` declarations from `via <parent>` transitive pulls. |
+| `--json` | Print an array of `{name, version, source, scope, orphaned, primitives}` objects sorted by `name` (`insecure_via` is added with `--insecure`). Errors go to stderr as `{"error": ...}`. |
 
 ### `apm deps tree`
 

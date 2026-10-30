@@ -1007,3 +1007,162 @@ class TestDisplayRegistryVersions:
             mock_console_cls.return_value = mock_console
             # Should not raise or exit
             _display_registry_versions("acme/web-skills", dep_ref, logger, registry_name=None)
+
+
+class TestViewJsonOutput(_InfoCmdBase):
+    """``apm view --json``."""
+
+    def test_local_package_json(self):
+        import json
+
+        with self._chdir_tmp() as tmp:
+            self._make_package(tmp, "myorg", "myrepo", version="2.5.0", author="Alice")
+            result = self.runner.invoke(cli, ["view", "myorg/myrepo", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["name"] == "myrepo"
+        assert data["version"] == "2.5.0"
+        assert data["author"] == "Alice"
+        assert data["ref"] is None and data["commit"] is None
+        assert isinstance(data["context_files"], dict)
+        assert set(data) == {
+            "name",
+            "version",
+            "description",
+            "author",
+            "source",
+            "ref",
+            "commit",
+            "install_path",
+            "context_files",
+            "workflows",
+            "hooks",
+        }
+
+    def test_local_package_json_placeholders_are_null(self):
+        import json
+
+        with self._chdir_tmp() as tmp:
+            pkg_dir = tmp / "apm_modules" / "myorg" / "bare"
+            pkg_dir.mkdir(parents=True)
+            (pkg_dir / "apm.yml").write_text("name: bare\nversion: 1.0.0\n")
+            result = self.runner.invoke(cli, ["view", "myorg/bare", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["description"] is None
+        assert data["author"] is None
+
+    def test_local_package_not_found_json(self):
+        import json
+
+        with self._chdir_tmp() as tmp:
+            self._make_package(tmp, "myorg", "myrepo")
+            result = self.runner.invoke(cli, ["view", "myorg/other", "--json"])
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        err = json.loads(result.stderr)
+        assert "not found" in err["error"]
+        assert err["available"] == ["myorg/myrepo"]
+
+    def test_no_apm_modules_json(self):
+        import json
+
+        with self._chdir_tmp():
+            result = self.runner.invoke(cli, ["view", "myorg/myrepo", "--json"])
+        assert result.exit_code == 1
+        assert "apm_modules" in json.loads(result.stderr)["error"]
+
+    def test_json_with_field_rejected(self):
+        import json
+
+        result = self.runner.invoke(cli, ["view", "myorg/myrepo", "versions", "--json"])
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "FIELD" in json.loads(result.stderr)["error"]
+
+    def test_marketplace_ref_with_range_json(self):
+        import json
+
+        result = self.runner.invoke(cli, ["view", "my-plugin@acme-tools#^1.0", "--json"])
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert json.loads(result.stderr)["error"]
+
+    def test_marketplace_plugin_json(self):
+        import json
+
+        from apm_cli.marketplace.models import (
+            MarketplaceManifest,
+            MarketplacePlugin,
+            MarketplaceSource,
+        )
+
+        plugin = MarketplacePlugin(
+            name="my-plugin",
+            source={"type": "github", "repo": "acme/plugin", "ref": "main"},
+            version="2.0.0",
+            tags=("zz", "aa"),
+        )
+        manifest = MarketplaceManifest(name="acme-tools", plugins=(plugin,))
+        source = MarketplaceSource(name="acme-tools", owner="acme", repo="marketplace")
+
+        with (
+            patch("apm_cli.marketplace.registry.get_marketplace_by_name", return_value=source),
+            patch("apm_cli.marketplace.client.fetch_or_cache", return_value=manifest),
+        ):
+            result = self.runner.invoke(cli, ["view", "my-plugin@acme-tools", "--json"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["name"] == "my-plugin"
+        assert data["marketplace"] == "acme-tools"
+        assert data["version"] == "2.0.0"
+        assert data["description"] is None
+        assert data["source"] == "github / acme/plugin @ main"
+        assert data["tags"] == ["aa", "zz"]
+        assert data["install"] == "my-plugin@acme-tools"
+        assert set(data) == {
+            "name",
+            "marketplace",
+            "version",
+            "description",
+            "source",
+            "resolved",
+            "tags",
+            "install",
+        }
+
+    def test_marketplace_fetch_error_json(self):
+        import json
+
+        from apm_cli.marketplace.errors import MarketplaceFetchError
+        from apm_cli.marketplace.models import MarketplaceSource
+
+        source = MarketplaceSource(name="acme-tools", owner="acme", repo="marketplace")
+        with (
+            patch("apm_cli.marketplace.registry.get_marketplace_by_name", return_value=source),
+            patch(
+                "apm_cli.marketplace.client.fetch_or_cache",
+                side_effect=MarketplaceFetchError("acme-tools", "offline"),
+            ),
+        ):
+            result = self.runner.invoke(cli, ["view", "my-plugin@acme-tools", "--json"])
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "acme-tools" in json.loads(result.stderr)["error"]
+
+    def test_marketplace_plugin_not_found_json(self):
+        import json
+
+        from apm_cli.marketplace.models import MarketplaceManifest, MarketplaceSource
+
+        manifest = MarketplaceManifest(name="acme-tools", plugins=())
+        source = MarketplaceSource(name="acme-tools", owner="acme", repo="marketplace")
+        with (
+            patch("apm_cli.marketplace.registry.get_marketplace_by_name", return_value=source),
+            patch("apm_cli.marketplace.client.fetch_or_cache", return_value=manifest),
+        ):
+            result = self.runner.invoke(cli, ["view", "nope@acme-tools", "--json"])
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "nope" in json.loads(result.stderr)["error"]

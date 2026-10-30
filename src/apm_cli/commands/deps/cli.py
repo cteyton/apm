@@ -5,6 +5,7 @@ import shutil
 import sys
 from collections.abc import Iterator
 from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import Any
 
 import click
 
@@ -18,6 +19,7 @@ from ...core.target_catalog import target_all_exclusion_help, target_help_fragme
 from ...core.target_detection import TargetParamType
 from ...deps.lockfile import LockedDependency
 from ...models.apm_package import APMPackage
+from ...utils.json_output import emit_json, emit_json_error, sort_by_name
 from ...utils.path_security import PathTraversalError
 from .._helpers import (
     UnknownPackageError,
@@ -612,6 +614,35 @@ def _show_scope_deps(scope_label, apm_dir, logger, console, has_rich, insecure_o
     _report_native_plugins(apm_dir, logger)
 
 
+def _scope_deps_rows(
+    scope: str, apm_dir: Path, logger: CommandLogger, insecure_only: bool = False
+) -> list[dict[str, Any]]:
+    """Return ``deps list --json`` rows for a single scope.
+
+    Diagnostics still go through *logger*: in ``--json`` mode the root CLI
+    routes the console to stderr, so stdout stays pure JSON.
+    """
+    installed_packages, _orphaned = _resolve_scope_deps(apm_dir, logger, insecure_only)
+    rows = []
+    for pkg in installed_packages or []:
+        p = pkg["primitives"]
+        row = {
+            "name": pkg["name"],
+            "version": None if pkg["version"] == "unknown" else pkg["version"],
+            "source": pkg["source"],
+            "scope": scope,
+            "orphaned": pkg["is_orphaned"],
+            "primitives": {
+                kind: int(p.get(kind, 0))
+                for kind in ("agents", "hooks", "instructions", "prompts", "skills")
+            },
+        }
+        if insecure_only:
+            row["insecure_via"] = pkg["insecure_via"]
+        rows.append(row)
+    return rows
+
+
 @deps.command(name="list", help="List installed APM dependencies and their primitives")
 @click.option(
     "--global",
@@ -635,9 +666,31 @@ def _show_scope_deps(scope_label, apm_dir, logger, console, has_rich, insecure_o
     default=False,
     help="Show only installed dependencies locked to http:// sources",
 )
-def list_packages(global_, show_all, insecure_only):
+@click.option(
+    "--json", "as_json", is_flag=True, default=False, help="Output as JSON instead of a table."
+)
+def list_packages(global_, show_all, insecure_only, as_json):
     """Show all installed APM dependencies with context files and agent workflows."""
     logger = CommandLogger("deps-list")
+
+    if as_json:
+        try:
+            from ...core.scope import InstallScope, get_apm_dir
+
+            scopes = []
+            if show_all or not global_:
+                scopes.append(("project", get_apm_dir(InstallScope.PROJECT)))
+            if show_all or global_:
+                scopes.append(("global", get_apm_dir(InstallScope.USER)))
+            rows = [
+                row
+                for scope, apm_dir in scopes
+                for row in _scope_deps_rows(scope, apm_dir, logger, insecure_only)
+            ]
+            emit_json(sort_by_name(rows, tiebreak="scope"))
+        except Exception as e:
+            emit_json_error(f"Error listing dependencies: {e}")
+        return
 
     try:
         # Import Rich components with fallback

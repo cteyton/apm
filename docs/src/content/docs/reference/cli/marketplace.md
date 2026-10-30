@@ -149,7 +149,11 @@ branch.
 ```bash
 apm marketplace list
 apm marketplace list --verbose
+apm marketplace list --json
 ```
+
+`--json` prints an array of `{name, source, ref, path}` objects sorted
+alphabetically by `name` (`[]` when none are registered). Output is written to stdout as JSON only; errors go to stderr as `{"error": ...}` with exit code 1.
 
 ### `apm marketplace browse NAME`
 
@@ -157,6 +161,21 @@ Show the packages exposed by a registered marketplace.
 
 ```bash
 apm marketplace browse awesome-agents
+apm marketplace browse awesome-agents --json
+```
+
+`--json` prints an array of `{name, description, version, install}` objects
+sorted alphabetically by `name`; missing values are `null`. Output is written to stdout as JSON only; errors go to stderr as `{"error": ...}` with exit code 1.
+
+```json
+[
+  {
+    "name": "code-review",
+    "description": "Review pull requests",
+    "version": "1.2.0",
+    "install": "code-review@awesome-agents"
+  }
+]
 ```
 
 ### `apm marketplace update [NAME]`

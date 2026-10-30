@@ -13,7 +13,7 @@ import re
 import sys
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, NoReturn
 from urllib.parse import urlsplit, urlunsplit
 
 import click
@@ -42,6 +42,7 @@ from ...marketplace.ref_resolver import RefResolver, RemoteRef
 from ...marketplace.semver import SemVer, parse_semver, satisfies_range
 from ...marketplace.yml_schema import load_marketplace_yml
 from ...utils.console import STATUS_SYMBOLS
+from ...utils.json_output import emit_json, emit_json_error, sort_by_name
 from ...utils.path_security import (
     PathTraversalError,
     validate_path_segments,
@@ -49,7 +50,7 @@ from ...utils.path_security import (
 from .._helpers import _get_console, _is_interactive
 
 if TYPE_CHECKING:
-    from ...marketplace.models import MarketplaceSource
+    from ...marketplace.models import MarketplacePlugin, MarketplaceSource
 
 logger = logging.getLogger(__name__)
 
@@ -643,13 +644,32 @@ def _default_alias_from_url(url: str) -> str:
 
 @marketplace.command(name="list", help="List registered marketplaces")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
-def list_cmd(verbose):
+@click.option(
+    "--json", "as_json", is_flag=True, default=False, help="Output as JSON instead of a table."
+)
+def list_cmd(verbose, as_json):
     """Show all registered marketplaces."""
     logger = CommandLogger("marketplace-list", verbose=verbose)
     try:
         from ...marketplace.registry import get_registered_marketplaces
 
         sources = get_registered_marketplaces()
+
+        if as_json:
+            emit_json(
+                sort_by_name(
+                    [
+                        {
+                            "name": s.name,
+                            "source": s.display_source,
+                            "ref": s.ref or None,
+                            "path": s.path or None,
+                        }
+                        for s in sources
+                    ]
+                )
+            )
+            return
 
         if not sources:
             logger.progress(
@@ -691,16 +711,32 @@ def list_cmd(verbose):
         )
 
     except Exception as e:
+        if as_json:
+            emit_json_error(f"Failed to list marketplaces: {e}")
         logger.error(f"Failed to list marketplaces: {e}")
         if verbose:
             logger.progress(traceback.format_exc(), symbol="info")
         sys.exit(1)
 
 
+def _plugin_row(
+    plugin: MarketplacePlugin, marketplace_name: str, *, with_version: bool = True
+) -> dict[str, Any]:
+    """Build the ``--json`` row for a marketplace plugin."""
+    row: dict[str, Any] = {"name": plugin.name, "description": plugin.description or None}
+    if with_version:
+        row["version"] = plugin.version or None
+    row["install"] = f"{plugin.name}@{marketplace_name}"
+    return row
+
+
 @marketplace.command(help="Browse plugins in a marketplace")
 @click.argument("name", required=True)
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
-def browse(name, verbose):
+@click.option(
+    "--json", "as_json", is_flag=True, default=False, help="Output as JSON instead of a table."
+)
+def browse(name, verbose, as_json):
     """Show available plugins in a marketplace."""
     logger = CommandLogger("marketplace-browse", verbose=verbose)
     try:
@@ -708,9 +744,14 @@ def browse(name, verbose):
         from ...marketplace.registry import get_marketplace_by_name
 
         source = get_marketplace_by_name(name)
-        logger.start(f"Fetching plugins from '{name}'...", symbol="search")
+        if not as_json:
+            logger.start(f"Fetching plugins from '{name}'...", symbol="search")
 
         manifest = fetch_marketplace(source, force_refresh=True)
+
+        if as_json:
+            emit_json(sort_by_name([_plugin_row(p, name) for p in manifest.plugins]))
+            return
 
         if not manifest.plugins:
             logger.warning(f"Marketplace '{name}' has no plugins")
@@ -752,6 +793,8 @@ def browse(name, verbose):
         )
 
     except Exception as e:
+        if as_json:
+            emit_json_error(f"Failed to browse marketplace: {e}")
         logger.error(f"Failed to browse marketplace: {e}")
         if verbose:
             logger.progress(traceback.format_exc(), symbol="info")
@@ -1150,7 +1193,10 @@ def _render_doctor_table(logger, checks):
 @click.argument("expression", required=True, metavar="QUERY@MARKETPLACE")
 @click.option("--limit", default=20, show_default=True, help="Max results to show")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
-def search(expression, limit, verbose):
+@click.option(
+    "--json", "as_json", is_flag=True, default=False, help="Output as JSON instead of a table."
+)
+def search(expression, limit, verbose, as_json):
     """Search for plugins in a specific marketplace.
 
     Use QUERY@MARKETPLACE format, e.g.:  apm marketplace search security@skills
@@ -1160,32 +1206,44 @@ def search(expression, limit, verbose):
         from ...marketplace.client import search_marketplace
         from ...marketplace.registry import get_marketplace_by_name
 
+        def _fail(message: str) -> NoReturn:
+            if as_json:
+                emit_json_error(message)
+            logger.error(message)
+            sys.exit(1)
+
         if "@" not in expression:
-            logger.error(
+            _fail(
                 f"Invalid format: '{expression}'. "
                 "Use QUERY@MARKETPLACE, e.g.: apm marketplace search security@skills"
             )
-            sys.exit(1)
 
         query, marketplace_name = expression.rsplit("@", 1)
         if not query or not marketplace_name:
-            logger.error(
+            _fail(
                 "Both QUERY and MARKETPLACE are required. "
                 "Use QUERY@MARKETPLACE, e.g.: apm marketplace search security@skills"
             )
-            sys.exit(1)
 
         try:
             source = get_marketplace_by_name(marketplace_name)
         except MarketplaceNotFoundError:
-            logger.error(
+            _fail(
                 f"Marketplace '{marketplace_name}' is not registered. "
                 "Use 'apm marketplace list' to see registered marketplaces."
             )
-            sys.exit(1)
 
-        logger.start(f"Searching '{marketplace_name}' for '{query}'...", symbol="search")
+        if not as_json:
+            logger.start(f"Searching '{marketplace_name}' for '{query}'...", symbol="search")
         results = search_marketplace(query, source)[:limit]
+
+        if as_json:
+            emit_json(
+                sort_by_name(
+                    [_plugin_row(p, marketplace_name, with_version=False) for p in results]
+                )
+            )
+            return
 
         if not results:
             logger.warning(
@@ -1235,6 +1293,8 @@ def search(expression, limit, verbose):
     except SystemExit:
         raise
     except Exception as e:
+        if as_json:
+            emit_json_error(f"Search failed: {e}")
         logger.error(f"Search failed: {e}")
         logger.verbose_detail(traceback.format_exc())
         sys.exit(1)

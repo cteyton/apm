@@ -1,6 +1,6 @@
 """Tests for marketplace CLI commands using CliRunner."""
 
-import json  # noqa: F401
+import json
 import re
 from unittest.mock import MagicMock, patch  # noqa: F401
 from urllib.parse import urlparse
@@ -938,3 +938,145 @@ class TestSearch:
             or "not found" in result.output.lower()
             or "browse" in result.output.lower()
         )
+
+
+class TestMarketplaceJsonOutput:
+    """``--json`` output for list / browse / search."""
+
+    @patch("apm_cli.marketplace.registry.get_registered_marketplaces")
+    def test_list_json_sorted(self, mock_get, runner):
+        from apm_cli.commands.marketplace import marketplace
+
+        mock_get.return_value = [
+            MarketplaceSource(name="beta", owner="b-org", repo="plugins"),
+            MarketplaceSource(name="Alpha", owner="alpha-org", repo="plugins", ref="v1"),
+            MarketplaceSource(name="acme", owner="acme-org", repo="plugins"),
+        ]
+        result = runner.invoke(marketplace, ["list", "--json"])
+        assert result.exit_code == 0
+        rows = json.loads(result.stdout)
+        # Case-insensitive: a plain sort would put "Alpha" first.
+        assert [r["name"] for r in rows] == ["acme", "Alpha", "beta"]
+        assert set(rows[1]) == {"name", "source", "ref", "path"}
+        assert rows[1]["ref"] == "v1"
+
+    @patch("apm_cli.marketplace.registry.get_registered_marketplaces")
+    def test_list_json_error(self, mock_get, runner):
+        from apm_cli.commands.marketplace import marketplace
+
+        mock_get.side_effect = RuntimeError("registry unreadable")
+        result = runner.invoke(marketplace, ["list", "--json"])
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "registry unreadable" in json.loads(result.stderr)["error"]
+
+    @patch("apm_cli.marketplace.registry.get_registered_marketplaces")
+    def test_list_json_empty(self, mock_get, runner):
+        from apm_cli.commands.marketplace import marketplace
+
+        mock_get.return_value = []
+        result = runner.invoke(marketplace, ["list", "--json"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout) == []
+
+    @patch("apm_cli.marketplace.client.fetch_marketplace")
+    @patch("apm_cli.marketplace.registry.get_marketplace_by_name")
+    def test_browse_json_sorted(self, mock_get, mock_fetch, runner):
+        from apm_cli.commands.marketplace import marketplace
+
+        mock_get.return_value = MarketplaceSource(name="acme", owner="acme-org", repo="plugins")
+        mock_fetch.return_value = MarketplaceManifest(
+            name="Acme",
+            plugins=(
+                MarketplacePlugin(name="security-checks", description="Scans", version="1.0.0"),
+                MarketplacePlugin(name="code-review"),
+            ),
+        )
+        result = runner.invoke(marketplace, ["browse", "acme", "--json"])
+        assert result.exit_code == 0
+        rows = json.loads(result.stdout)  # stdout must carry JSON only
+        assert rows == [
+            {
+                "name": "code-review",
+                "description": None,
+                "version": None,
+                "install": "code-review@acme",
+            },
+            {
+                "name": "security-checks",
+                "description": "Scans",
+                "version": "1.0.0",
+                "install": "security-checks@acme",
+            },
+        ]
+
+    @patch("apm_cli.marketplace.client.fetch_marketplace")
+    @patch("apm_cli.marketplace.registry.get_marketplace_by_name")
+    def test_browse_json_empty(self, mock_get, mock_fetch, runner):
+        from apm_cli.commands.marketplace import marketplace
+
+        mock_get.return_value = MarketplaceSource(name="acme", owner="acme-org", repo="plugins")
+        mock_fetch.return_value = MarketplaceManifest(name="Acme", plugins=())
+        result = runner.invoke(marketplace, ["browse", "acme", "--json"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout) == []
+
+    @patch("apm_cli.marketplace.registry.get_marketplace_by_name")
+    def test_browse_json_error(self, mock_get, runner):
+        from apm_cli.commands.marketplace import marketplace
+        from apm_cli.marketplace.errors import MarketplaceNotFoundError
+
+        mock_get.side_effect = MarketplaceNotFoundError("nope")
+        result = runner.invoke(marketplace, ["browse", "nope", "--json"])
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "nope" in json.loads(result.stderr)["error"]
+
+    @patch("apm_cli.marketplace.client.search_marketplace")
+    @patch("apm_cli.marketplace.registry.get_marketplace_by_name")
+    def test_search_json_sorted(self, mock_get, mock_search, runner):
+        from apm_cli.commands.marketplace import search
+
+        mock_get.return_value = MarketplaceSource(name="skills", owner="o", repo="r")
+        mock_search.return_value = [
+            MarketplacePlugin(name="sec-z", description="Z" * 100),
+            MarketplacePlugin(name="sec-a"),
+        ]
+        result = runner.invoke(search, ["sec@skills", "--json"])
+        assert result.exit_code == 0
+        rows = json.loads(result.stdout)
+        assert [r["name"] for r in rows] == ["sec-a", "sec-z"]
+        assert set(rows[0]) == {"name", "description", "install"}
+        assert rows[1]["description"] == "Z" * 100  # never truncated
+        assert rows[0]["install"] == "sec-a@skills"
+
+    @patch("apm_cli.marketplace.client.search_marketplace")
+    @patch("apm_cli.marketplace.registry.get_marketplace_by_name")
+    def test_search_json_empty(self, mock_get, mock_search, runner):
+        from apm_cli.commands.marketplace import search
+
+        mock_get.return_value = MarketplaceSource(name="skills", owner="o", repo="r")
+        mock_search.return_value = []
+        result = runner.invoke(search, ["nothing@skills", "--json"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout) == []
+
+    @patch("apm_cli.marketplace.client.search_marketplace")
+    @patch("apm_cli.marketplace.registry.get_marketplace_by_name")
+    def test_search_json_error(self, mock_get, mock_search, runner):
+        from apm_cli.commands.marketplace import search
+
+        mock_get.return_value = MarketplaceSource(name="skills", owner="o", repo="r")
+        mock_search.side_effect = RuntimeError("fetch failed")
+        result = runner.invoke(search, ["sec@skills", "--json"])
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "fetch failed" in json.loads(result.stderr)["error"]
+
+    def test_search_json_invalid_format(self, runner):
+        from apm_cli.commands.marketplace import search
+
+        result = runner.invoke(search, ["security", "--json"])
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "QUERY@MARKETPLACE" in json.loads(result.stderr)["error"]

@@ -696,3 +696,112 @@ class TestDepsInfoCommand(_DepsCmdBase):
         assert result_info.exit_code == 0
         # The output must be identical (same handler, same display logic)
         assert result_deps.output == result_info.output
+
+
+class TestDepsListJson(_DepsCmdBase):
+    """Tests for ``apm deps list --json``."""
+
+    def _make_package(self, root: Path, org: str, repo: str, version: str = "1.0.0") -> Path:
+        pkg_dir = root / "apm_modules" / org / repo
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "apm.yml").write_text(f"name: {repo}\nversion: {version}\n")
+        return pkg_dir
+
+    def test_json_sorted_with_orphan_flag(self):
+        import json
+
+        with self._chdir_tmp() as tmp:
+            self._make_package(tmp, "acme", "zeta", "1.2.0")
+            self._make_package(tmp, "acme", "alpha")
+            (tmp / "apm.yml").write_text(
+                "name: proj\nversion: 0.0.1\ndependencies:\n  apm:\n    - acme/zeta\n"
+            )
+            with patch("apm_cli.core.scope.get_apm_dir", return_value=tmp):
+                result = self.runner.invoke(cli, ["deps", "list", "--json"])
+        assert result.exit_code == 0
+        rows = json.loads(result.stdout)
+        assert [r["name"] for r in rows] == ["acme/alpha", "acme/zeta"]
+        alpha, zeta = rows
+        assert alpha["orphaned"] is True
+        assert zeta["orphaned"] is False
+        assert zeta["version"] == "1.2.0"
+        assert zeta["scope"] == "project"
+        assert set(zeta) == {"name", "version", "source", "scope", "orphaned", "primitives"}
+        assert zeta["primitives"] == {
+            "agents": 0,
+            "hooks": 0,
+            "instructions": 0,
+            "prompts": 0,
+            "skills": 0,
+        }
+        assert "insecure_via" not in zeta
+
+    def test_json_no_apm_modules(self):
+        import json
+
+        with self._chdir_tmp() as tmp:
+            with patch("apm_cli.core.scope.get_apm_dir", return_value=tmp):
+                result = self.runner.invoke(cli, ["deps", "list", "--json"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout) == []
+
+    def test_json_all_scopes(self):
+        import json
+
+        from apm_cli.core.scope import InstallScope
+
+        with self._chdir_tmp() as tmp:
+            proj = tmp / "proj"
+            user = tmp / "user"
+            self._make_package(proj, "org", "shared")
+            self._make_package(user, "org", "shared")
+            self._make_package(user, "org", "aaa")
+
+            def fake_get_apm_dir(scope):
+                return user if scope == InstallScope.USER else proj
+
+            with patch("apm_cli.core.scope.get_apm_dir", side_effect=fake_get_apm_dir):
+                result = self.runner.invoke(cli, ["deps", "list", "--all", "--json"])
+        assert result.exit_code == 0
+        rows = json.loads(result.stdout)
+        assert [(r["name"], r["scope"]) for r in rows] == [
+            ("org/aaa", "global"),
+            ("org/shared", "global"),
+            ("org/shared", "project"),
+        ]
+
+    def test_json_global_scope(self):
+        import json
+
+        from apm_cli.core.scope import InstallScope
+
+        with self._chdir_tmp() as tmp:
+            proj = tmp / "proj"
+            user = tmp / "user"
+            self._make_package(proj, "org", "project-only")
+            self._make_package(user, "org", "user-only")
+
+            def fake_get_apm_dir(scope):
+                return user if scope == InstallScope.USER else proj
+
+            with patch("apm_cli.core.scope.get_apm_dir", side_effect=fake_get_apm_dir):
+                result = self.runner.invoke(cli, ["deps", "list", "-g", "--json"])
+        assert result.exit_code == 0
+        rows = json.loads(result.stdout)
+        assert [(r["name"], r["scope"]) for r in rows] == [("org/user-only", "global")]
+
+    def test_json_error(self):
+        import json
+
+        with self._chdir_tmp() as tmp:
+            with (
+                patch("apm_cli.core.scope.get_apm_dir", return_value=tmp),
+                patch(
+                    "apm_cli.commands.deps.cli._resolve_scope_deps",
+                    side_effect=RuntimeError("broken lockfile"),
+                ),
+            ):
+                result = self.runner.invoke(cli, ["deps", "list", "--json"])
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "broken lockfile" in json.loads(result.stderr)["error"]

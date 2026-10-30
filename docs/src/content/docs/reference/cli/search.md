@@ -37,6 +37,7 @@ The expression is split on the last `@`, so queries containing `@` are preserved
 | ------------------- | ------- | ------------------------------------ |
 | `--limit N`         | `20`    | Maximum number of results to display |
 | `-v`, `--verbose`   |         | Show detailed output and tracebacks  |
+| `--json`            |         | Print results as a JSON array of `{name, description, install}` objects sorted by `name`. Errors go to stderr as `{"error": ...}`. |
 
 ## Examples
 
