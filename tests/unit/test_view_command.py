@@ -1017,7 +1017,7 @@ class TestViewJsonOutput(_InfoCmdBase):
 
         with self._chdir_tmp() as tmp:
             self._make_package(tmp, "myorg", "myrepo", version="2.5.0", author="Alice")
-            result = self.runner.invoke(cli, ["view", "myorg/myrepo", "--json"])
+            result = self.runner.invoke(cli, ["view", "myorg/myrepo", "--format", "json"])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["name"] == "myrepo"
@@ -1046,7 +1046,7 @@ class TestViewJsonOutput(_InfoCmdBase):
             pkg_dir = tmp / "apm_modules" / "myorg" / "bare"
             pkg_dir.mkdir(parents=True)
             (pkg_dir / "apm.yml").write_text("name: bare\nversion: 1.0.0\n")
-            result = self.runner.invoke(cli, ["view", "myorg/bare", "--json"])
+            result = self.runner.invoke(cli, ["view", "myorg/bare", "--format", "json"])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["description"] is None
@@ -1057,7 +1057,7 @@ class TestViewJsonOutput(_InfoCmdBase):
 
         with self._chdir_tmp() as tmp:
             self._make_package(tmp, "myorg", "myrepo")
-            result = self.runner.invoke(cli, ["view", "myorg/other", "--json"])
+            result = self.runner.invoke(cli, ["view", "myorg/other", "--format", "json"])
         assert result.exit_code == 1
         assert result.stdout == ""
         err = json.loads(result.stderr)
@@ -1068,14 +1068,14 @@ class TestViewJsonOutput(_InfoCmdBase):
         import json
 
         with self._chdir_tmp():
-            result = self.runner.invoke(cli, ["view", "myorg/myrepo", "--json"])
+            result = self.runner.invoke(cli, ["view", "myorg/myrepo", "--format", "json"])
         assert result.exit_code == 1
         assert "apm_modules" in json.loads(result.stderr)["error"]
 
     def test_json_with_field_rejected(self):
         import json
 
-        result = self.runner.invoke(cli, ["view", "myorg/myrepo", "versions", "--json"])
+        result = self.runner.invoke(cli, ["view", "myorg/myrepo", "versions", "--format", "json"])
         assert result.exit_code == 1
         assert result.stdout == ""
         assert "FIELD" in json.loads(result.stderr)["error"]
@@ -1083,7 +1083,7 @@ class TestViewJsonOutput(_InfoCmdBase):
     def test_marketplace_ref_with_range_json(self):
         import json
 
-        result = self.runner.invoke(cli, ["view", "my-plugin@acme-tools#^1.0", "--json"])
+        result = self.runner.invoke(cli, ["view", "my-plugin@acme-tools#^1.0", "--format", "json"])
         assert result.exit_code == 1
         assert result.stdout == ""
         assert json.loads(result.stderr)["error"]
@@ -1110,7 +1110,7 @@ class TestViewJsonOutput(_InfoCmdBase):
             patch("apm_cli.marketplace.registry.get_marketplace_by_name", return_value=source),
             patch("apm_cli.marketplace.client.fetch_or_cache", return_value=manifest),
         ):
-            result = self.runner.invoke(cli, ["view", "my-plugin@acme-tools", "--json"])
+            result = self.runner.invoke(cli, ["view", "my-plugin@acme-tools", "--format", "json"])
 
         assert result.exit_code == 0
         data = json.loads(result.stdout)
@@ -1146,7 +1146,7 @@ class TestViewJsonOutput(_InfoCmdBase):
                 side_effect=MarketplaceFetchError("acme-tools", "offline"),
             ),
         ):
-            result = self.runner.invoke(cli, ["view", "my-plugin@acme-tools", "--json"])
+            result = self.runner.invoke(cli, ["view", "my-plugin@acme-tools", "--format", "json"])
         assert result.exit_code == 1
         assert result.stdout == ""
         assert "acme-tools" in json.loads(result.stderr)["error"]
@@ -1162,7 +1162,7 @@ class TestViewJsonOutput(_InfoCmdBase):
             patch("apm_cli.marketplace.registry.get_marketplace_by_name", return_value=source),
             patch("apm_cli.marketplace.client.fetch_or_cache", return_value=manifest),
         ):
-            result = self.runner.invoke(cli, ["view", "nope@acme-tools", "--json"])
+            result = self.runner.invoke(cli, ["view", "nope@acme-tools", "--format", "json"])
         assert result.exit_code == 1
         assert result.stdout == ""
         assert "nope" in json.loads(result.stderr)["error"]

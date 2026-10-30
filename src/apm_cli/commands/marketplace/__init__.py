@@ -42,7 +42,7 @@ from ...marketplace.ref_resolver import RefResolver, RemoteRef
 from ...marketplace.semver import SemVer, parse_semver, satisfies_range
 from ...marketplace.yml_schema import load_marketplace_yml
 from ...utils.console import STATUS_SYMBOLS
-from ...utils.json_output import emit_json, emit_json_error, sort_by_name
+from ...utils.json_output import emit_json, emit_json_error, format_option, sort_by_name
 from ...utils.path_security import (
     PathTraversalError,
     validate_path_segments,
@@ -644,11 +644,10 @@ def _default_alias_from_url(url: str) -> str:
 
 @marketplace.command(name="list", help="List registered marketplaces")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
-@click.option(
-    "--json", "as_json", is_flag=True, default=False, help="Output as JSON instead of a table."
-)
-def list_cmd(verbose, as_json):
+@format_option
+def list_cmd(verbose, output_format):
     """Show all registered marketplaces."""
+    as_json = output_format == "json"
     logger = CommandLogger("marketplace-list", verbose=verbose)
     try:
         from ...marketplace.registry import get_registered_marketplaces
@@ -733,11 +732,10 @@ def _plugin_row(
 @marketplace.command(help="Browse plugins in a marketplace")
 @click.argument("name", required=True)
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
-@click.option(
-    "--json", "as_json", is_flag=True, default=False, help="Output as JSON instead of a table."
-)
-def browse(name, verbose, as_json):
+@format_option
+def browse(name, verbose, output_format):
     """Show available plugins in a marketplace."""
+    as_json = output_format == "json"
     logger = CommandLogger("marketplace-browse", verbose=verbose)
     try:
         from ...marketplace.client import fetch_marketplace
@@ -1193,14 +1191,13 @@ def _render_doctor_table(logger, checks):
 @click.argument("expression", required=True, metavar="QUERY@MARKETPLACE")
 @click.option("--limit", default=20, show_default=True, help="Max results to show")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
-@click.option(
-    "--json", "as_json", is_flag=True, default=False, help="Output as JSON instead of a table."
-)
-def search(expression, limit, verbose, as_json):
+@format_option
+def search(expression, limit, verbose, output_format):
     """Search for plugins in a specific marketplace.
 
     Use QUERY@MARKETPLACE format, e.g.:  apm marketplace search security@skills
     """
+    as_json = output_format == "json"
     logger = CommandLogger("marketplace-search", verbose=verbose)
     try:
         from ...marketplace.client import search_marketplace

@@ -952,7 +952,7 @@ class TestMarketplaceJsonOutput:
             MarketplaceSource(name="Alpha", owner="alpha-org", repo="plugins", ref="v1"),
             MarketplaceSource(name="acme", owner="acme-org", repo="plugins"),
         ]
-        result = runner.invoke(marketplace, ["list", "--json"])
+        result = runner.invoke(marketplace, ["list", "--format", "json"])
         assert result.exit_code == 0
         rows = json.loads(result.stdout)
         # Case-insensitive: a plain sort would put "Alpha" first.
@@ -965,17 +965,26 @@ class TestMarketplaceJsonOutput:
         from apm_cli.commands.marketplace import marketplace
 
         mock_get.side_effect = RuntimeError("registry unreadable")
-        result = runner.invoke(marketplace, ["list", "--json"])
+        result = runner.invoke(marketplace, ["list", "--format", "json"])
         assert result.exit_code == 1
         assert result.stdout == ""
         assert "registry unreadable" in json.loads(result.stderr)["error"]
+
+    @patch("apm_cli.marketplace.registry.get_registered_marketplaces")
+    def test_list_short_format_flag_is_case_insensitive(self, mock_get, runner):
+        from apm_cli.commands.marketplace import marketplace
+
+        mock_get.return_value = [MarketplaceSource(name="acme", owner="acme-org", repo="plugins")]
+        result = runner.invoke(marketplace, ["list", "-f", "JSON"])
+        assert result.exit_code == 0
+        assert [r["name"] for r in json.loads(result.stdout)] == ["acme"]
 
     @patch("apm_cli.marketplace.registry.get_registered_marketplaces")
     def test_list_json_empty(self, mock_get, runner):
         from apm_cli.commands.marketplace import marketplace
 
         mock_get.return_value = []
-        result = runner.invoke(marketplace, ["list", "--json"])
+        result = runner.invoke(marketplace, ["list", "--format", "json"])
         assert result.exit_code == 0
         assert json.loads(result.stdout) == []
 
@@ -992,7 +1001,7 @@ class TestMarketplaceJsonOutput:
                 MarketplacePlugin(name="code-review"),
             ),
         )
-        result = runner.invoke(marketplace, ["browse", "acme", "--json"])
+        result = runner.invoke(marketplace, ["browse", "acme", "--format", "json"])
         assert result.exit_code == 0
         rows = json.loads(result.stdout)  # stdout must carry JSON only
         assert rows == [
@@ -1017,7 +1026,7 @@ class TestMarketplaceJsonOutput:
 
         mock_get.return_value = MarketplaceSource(name="acme", owner="acme-org", repo="plugins")
         mock_fetch.return_value = MarketplaceManifest(name="Acme", plugins=())
-        result = runner.invoke(marketplace, ["browse", "acme", "--json"])
+        result = runner.invoke(marketplace, ["browse", "acme", "--format", "json"])
         assert result.exit_code == 0
         assert json.loads(result.stdout) == []
 
@@ -1027,7 +1036,7 @@ class TestMarketplaceJsonOutput:
         from apm_cli.marketplace.errors import MarketplaceNotFoundError
 
         mock_get.side_effect = MarketplaceNotFoundError("nope")
-        result = runner.invoke(marketplace, ["browse", "nope", "--json"])
+        result = runner.invoke(marketplace, ["browse", "nope", "--format", "json"])
         assert result.exit_code == 1
         assert result.stdout == ""
         assert "nope" in json.loads(result.stderr)["error"]
@@ -1042,7 +1051,7 @@ class TestMarketplaceJsonOutput:
             MarketplacePlugin(name="sec-z", description="Z" * 100),
             MarketplacePlugin(name="sec-a"),
         ]
-        result = runner.invoke(search, ["sec@skills", "--json"])
+        result = runner.invoke(search, ["sec@skills", "--format", "json"])
         assert result.exit_code == 0
         rows = json.loads(result.stdout)
         assert [r["name"] for r in rows] == ["sec-a", "sec-z"]
@@ -1057,7 +1066,7 @@ class TestMarketplaceJsonOutput:
 
         mock_get.return_value = MarketplaceSource(name="skills", owner="o", repo="r")
         mock_search.return_value = []
-        result = runner.invoke(search, ["nothing@skills", "--json"])
+        result = runner.invoke(search, ["nothing@skills", "--format", "json"])
         assert result.exit_code == 0
         assert json.loads(result.stdout) == []
 
@@ -1068,7 +1077,7 @@ class TestMarketplaceJsonOutput:
 
         mock_get.return_value = MarketplaceSource(name="skills", owner="o", repo="r")
         mock_search.side_effect = RuntimeError("fetch failed")
-        result = runner.invoke(search, ["sec@skills", "--json"])
+        result = runner.invoke(search, ["sec@skills", "--format", "json"])
         assert result.exit_code == 1
         assert result.stdout == ""
         assert "fetch failed" in json.loads(result.stderr)["error"]
@@ -1076,7 +1085,7 @@ class TestMarketplaceJsonOutput:
     def test_search_json_invalid_format(self, runner):
         from apm_cli.commands.marketplace import search
 
-        result = runner.invoke(search, ["security", "--json"])
+        result = runner.invoke(search, ["security", "--format", "json"])
         assert result.exit_code == 1
         assert result.stdout == ""
         assert "QUERY@MARKETPLACE" in json.loads(result.stderr)["error"]

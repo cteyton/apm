@@ -17,7 +17,7 @@ from ..core.command_logger import CommandLogger
 from ..deps.github_downloader import GitHubPackageDownloader
 from ..models.dependency.reference import DependencyReference
 from ..models.dependency.types import RemoteRef
-from ..utils.json_output import emit_json, emit_json_error
+from ..utils.json_output import emit_json, emit_json_error, format_option
 from ..utils.path_security import PathTraversalError, ensure_path_within, validate_path_segments
 from .deps._utils import _get_detailed_package_info
 
@@ -770,17 +770,16 @@ _VIEW_HELP = (
     help="List versions from a registry (bare to use the default, or name one). "
     "Use a full git URL to force the git path instead.",
 )
-@click.option(
-    "--json", "as_json", is_flag=True, default=False, help="Output as JSON instead of a panel."
-)
-def view(package: str, field: str | None, global_: bool, registry: str | None, as_json: bool):
+@format_option
+def view(package: str, field: str | None, global_: bool, registry: str | None, output_format: str):
     """View package metadata or list remote versions."""
+    as_json = output_format == "json"
     from ..core.scope import InstallScope, get_apm_dir
 
     logger = CommandLogger("view")
 
     if as_json and field is not None:
-        emit_json_error("--json is not supported together with a FIELD argument")
+        emit_json_error("--format json is not supported together with a FIELD argument")
 
     # Warn if --registry is supplied without the versions field (flag is ignored).
     if registry is not None and field != "versions":

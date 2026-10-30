@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `--json` flag for `apm marketplace list`, `apm marketplace browse`, `apm marketplace search` / `apm search` and `apm view`. List output is an array sorted alphabetically by name, stdout carries only JSON, and errors are reported as `{"error": ...}` on stderr with exit code 1. (#PR_NUMBER)
+- `--format text|json` option for `apm marketplace list`, `apm marketplace browse`, `apm marketplace search` / `apm search` and `apm view`. List output is an array sorted alphabetically by name, stdout carries only JSON, and errors are reported as `{"error": ...}` on stderr with exit code 1. (#PR_NUMBER)
 
 ## [0.35.0] - 2026-10-22
 

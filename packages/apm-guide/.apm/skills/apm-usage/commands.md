@@ -56,7 +56,7 @@ scope. It reads only the selected store; it does not substitute another store.
 | `apm deps tree` | Show the complete lockfile-resolved tree at any depth; mark repeated ancestors as circular | -- |
 | `apm deps why PKG` | Explain why a package is installed (walks lockfile bottom-up to direct deps; analogue of `npm why` / `yarn why`) | `-g` global, `--json` |
 | `apm find <PATH>` | Trace a deployed file back to the package(s) that contributed it (inverse of install; reads `apm.lock.yaml` only) | `--source` show OCI/git/local origin, `--path` show full why-chain (same as `apm deps why`) |
-| `apm view PKG [FIELD]` | View package details, git refs, or registry versions | `-g` global, `FIELD=versions`, `--registry [NAME]` forces registry path for versions, `--json` (not with FIELD) |
+| `apm view PKG [FIELD]` | View package details, git refs, or registry versions | `-g` global, `FIELD=versions`, `--registry [NAME]` forces registry path for versions, `--format json` (not with FIELD) |
 | `apm outdated` | Read-only upstream check: does not modify `apm.yml`, the lockfile, `apm_modules/`, or deployed files; legacy `apm.lock` is read in place. Registry `Latest` is highest published parseable semver (existing prerelease/build ordering); `Wanted` is highest within the constraint. `Source` adds `(outside constraint)` when Latest fails it. Unknown remotes never fall back to stale cached refs. Completed checks exit `0`, including outdated/unknown. | `-g` global, `-v` verbose (matching registry versions within the constraint; lockfile-only rows list newer published versions), `-j N` parallel checks; no `--json` or package filter |
 | `apm deps info PKG` | Alias for `apm view PKG` local metadata | -- |
 | `apm deps clean` | Clean dependency cache | `--dry-run`, `-y` skip confirm |
@@ -654,14 +654,14 @@ Credentials resolve via `APM_REGISTRY_TOKEN_{NAME}` env var (or `apm config set 
 | Command | Purpose | Key flags |
 |---------|---------|-----------|
 | `apm marketplace add SOURCE` | Register a marketplace. `SOURCE` accepts `OWNER/REPO`, `HOST/OWNER/REPO`, nested `HOST/group/sub/.../REPO`, HTTPS git URL with optional `#ref`, hosted `marketplace.json` URL, SSH URL (`git@host:org/repo.git` or `ssh://git@host[:PORT]/org/repo.git`), local directory or file path, or `file://` URI. `--ref` applies only to git-backed sources; `--host` applies only to shorthand sources. | `-n NAME`, `-r REF`, `--host HOST` |
-| `apm marketplace list` | List registered marketplaces | `--json` |
-| `apm marketplace browse NAME` | Browse marketplace plugins | `--json` |
+| `apm marketplace list` | List registered marketplaces | `--format json` |
+| `apm marketplace browse NAME` | Browse marketplace plugins | `--format json` |
 | `apm marketplace update [NAME]` | Update marketplace index | -- |
 | `apm marketplace remove NAME` | Remove a marketplace | `-y` skip confirm |
 | `apm marketplace validate NAME` | Validate raw structure, plugin schema, and duplicate plugin names. Add accepts unsupported or malformed entries with a warning; validate reports paths and exits 1 without rewriting the source manifest or registered marketplace entry. | `-v` |
-| `apm search QUERY@MARKETPLACE` | Search marketplace | `--limit N`, `--json` |
+| `apm search QUERY@MARKETPLACE` | Search marketplace | `--limit N`, `--format json` |
 | `apm install NAME@MKT[#ref]` | Install from marketplace | Optional `#ref` override |
-| `apm view NAME@MARKETPLACE` | View marketplace plugin info | `--json` |
+| `apm view NAME@MARKETPLACE` | View marketplace plugin info | `--format json` |
 
 ## Marketplace authoring
 

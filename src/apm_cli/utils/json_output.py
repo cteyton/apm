@@ -1,6 +1,6 @@
 """Helpers for machine-readable ``--json`` command output.
 
-Contract shared by every command exposing ``--json``:
+Contract shared by every command exposing ``--format json``:
 
 * stdout carries exactly one JSON document (nothing else).
 * list-style commands emit an array sorted case-insensitively by ``name``.
@@ -14,6 +14,16 @@ import sys
 from typing import Any, NoReturn
 
 import click
+
+format_option = click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default="text",
+    help="Output format: text (default) or json.",
+)
+"""Shared ``--format text|json`` option, the same shape as ``apm audit --format``."""
 
 
 def emit_json(data: Any) -> None:

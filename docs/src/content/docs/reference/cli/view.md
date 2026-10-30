@@ -53,7 +53,7 @@ For git packages, output is a table with name, type (`tag` or `branch`), and sho
 | ------------------- | -------------------------------------------- |
 | `-g`, `--global`    | Inspect a package installed in user scope (`~/.apm/apm_modules/`) |
 | `--registry [NAME]` | List versions from a registry. Omit a value to use the lockfile entry or configured default; provide `NAME` to force a specific named registry. Only valid with the `versions` field. |
-| `--json`            | Print package or marketplace-plugin metadata as a single JSON object on stdout. Not supported with a `FIELD` argument. Errors go to stderr as `{"error": ...}` with exit code 1. |
+| `-f`, `--format`    | `json` prints package or marketplace-plugin metadata as a single JSON object on stdout. Not supported with a `FIELD` argument. Errors go to stderr as `{"error": ...}` with exit code 1. |
 
 ## Examples
 
