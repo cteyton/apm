@@ -27,14 +27,11 @@ def emit_json_error(message: str, **extra: Any) -> NoReturn:
     sys.exit(1)
 
 
-def sort_by_name(rows: list[dict[str, Any]], tiebreak: str | None = None) -> list[dict[str, Any]]:
-    """Return *rows* sorted case-insensitively by their ``name`` key.
+def sort_by_name(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return *rows* sorted case-insensitively by their ``name`` key."""
 
-    Rows with the same name are ordered by the *tiebreak* key when given.
-    """
-
-    def _key(row: dict[str, Any]) -> tuple[str, str, str]:
+    def _key(row: dict[str, Any]) -> tuple[str, str]:
         name = str(row.get("name") or "")
-        return name.lower(), name, str(row.get(tiebreak) or "") if tiebreak else ""
+        return name.lower(), name
 
     return sorted(rows, key=_key)

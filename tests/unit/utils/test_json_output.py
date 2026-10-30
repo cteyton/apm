@@ -13,14 +13,6 @@ def test_sort_by_name_is_case_insensitive():
     assert [r["name"] for r in sort_by_name(rows)] == ["acme", "Alpha", "beta"]
 
 
-def test_sort_by_name_tiebreak():
-    rows = [
-        {"name": "pkg", "scope": "project"},
-        {"name": "pkg", "scope": "global"},
-    ]
-    assert [r["scope"] for r in sort_by_name(rows, tiebreak="scope")] == ["global", "project"]
-
-
 def test_sort_by_name_handles_missing_name():
     rows = [{"name": "b"}, {"name": None}, {}]
     assert [r.get("name") for r in sort_by_name(rows)][-1] == "b"
